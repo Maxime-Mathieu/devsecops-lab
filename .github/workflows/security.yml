@@ -6,20 +6,19 @@ jobs:
   # ═══════════════════════════════════════
   # 1. BUILD
   # Construit l'image Docker de l'application
-  # Permet de valider que le code compile et de préparer l'image pour le scan de vulnérabilités
   # ═══════════════════════════════════════
   build:
     name: 🏗️ Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Build Docker image
         run: docker build -t vuln-app:${{ github.sha }} .
-      
+
       - name: Save image
         run: docker save vuln-app:${{ github.sha }} > image.tar
-      
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -27,16 +26,15 @@ jobs:
           path: image.tar
 
   # ═══════════════════════════════════════
-  # 2. SAST - Analyse statique du code (Static Application Security Testing)
-  # Détecte les vulnérabilités dans le CODE SOURCE : injection SQL, XSS, failles de sécurité
-  # Outil : Semgrep avec règles OWASP Top 10, security-audit, et détection de secrets
+  # 2. SAST - Analyse statique du code
+  # Détecte les vulnérabilités dans le code source
   # ═══════════════════════════════════════
   sast:
     name: 🔍 SAST
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Run Semgrep
         uses: returntocorp/semgrep-action@v1
         with:
@@ -46,9 +44,8 @@ jobs:
             p/owasp-top-ten
 
   # ═══════════════════════════════════════
-  # 3. SCA - Analyse des dépendances (Software Composition Analysis)
-  # Détecte les vulnérabilités dans les BIBLIOTHÈQUES et packages tiers (npm, etc.)
-  # Outil : npm audit pour vérifier les CVE connues dans les dépendances Node.js
+  # 3. SCA - Analyse des dépendances
+  # Détecte les vulnérabilités dans les bibliothèques
   # ═══════════════════════════════════════
   sca:
     name: 📦 SCA
@@ -78,9 +75,7 @@ jobs:
 
   # ═══════════════════════════════════════
   # 4. SECRET DETECTION
-  # Détecte les SECRETS accidentellement committés : clés API, mots de passe, tokens
-  # Outil : Gitleaks qui scanne tout l'historique Git (fetch-depth: 0)
-  # ⚠️ Critique : évite les fuites de credentials et violations de sécurité
+  # Détecte les secrets dans le code
   # ═══════════════════════════════════════
   secrets:
     name: 🔐 Secrets
@@ -89,7 +84,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
+
       - name: Gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
@@ -97,9 +92,7 @@ jobs:
 
   # ═══════════════════════════════════════
   # 5. CONTAINER SCAN
-  # Scanne l'IMAGE DOCKER pour détecter les vulnérabilités dans l'OS et les packages système
-  # Outil : Trivy qui analyse les CVE dans les couches Docker (image de base, packages installés)
-  # Recherche les vulnérabilités CRITICAL uniquement (pragmatisme DevSecOps)
+  # Scanne l'image Docker pour les vulnérabilités
   # ═══════════════════════════════════════
   container-scan:
     name: 🐳 Container Scan
@@ -120,48 +113,40 @@ jobs:
           format: 'table'
           exit-code: '1'
           severity: 'CRITICAL'
-  # ═══════════════════════════════════════
-  # 6. DAST
-  # ═══════════════════════════════════════
 
+  # ═══════════════════════════════════════
+  # 6. DAST (Optionnel)
+  # Test dynamique de l'application en cours d'exécution
+  # ═══════════════════════════════════════
   dast:
-    name: :zap: DAST
+    name: ⚡ DAST
     runs-on: ubuntu-latest
     needs: build
-
     steps:
-      - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
           name: docker-image
 
-      - name: Load Docker image
-        run: docker load < image.tar
-
-      - name: Run application
+      - name: Load and run app
         run: |
+          docker load < image.tar
           docker run -d -p 3000:3000 --name app vuln-app:${{ github.sha }}
-          sleep 10
+          sleep 5
 
-      - name: OWASP ZAP Baseline Scan
-        run: mkdir -p ./zap-output && chmod 777 ./zap-output
-      - uses: zaproxy/action-baseline@v0.10.0
+      - name: OWASP ZAP Baseline
+        uses: zaproxy/action-baseline@v0.10.0
         with:
           target: 'http://localhost:3000'
           allow_issue_writing: false
-          format: 'json,md,html'
-          output_dir: './zap-output'
+
   # ═══════════════════════════════════════
   # 7. RAPPORT FINAL
-  # Génère un résumé de tous les scans de sécurité
-  # Vérifie le statut de chaque job et fait ÉCHOUER le pipeline si des vulnérabilités sont détectées
-  # S'exécute toujours (if: always()) même si des jobs précédents ont échoué
+  # Génère un rapport JSON et un résumé visuel
   # ═══════════════════════════════════════
   report:
     name: 📊 Report
     runs-on: ubuntu-latest
-    needs: [sast, sca, secrets, container-scan]
+    needs: [sast, sca, secrets, container-scan, dast]
     if: always()
     steps:
       - name: Generate JSON Report
@@ -189,13 +174,17 @@ jobs:
               "container_scan": {
                 "status": "${{ needs.container-scan.result }}",
                 "tool": "Trivy"
+              },
+              "dast": {
+                "status": "${{ needs.dast.result }}",
+                "tool": "OWASP ZAP"
               }
             },
             "summary": {
-              "total_checks": 4,
-              "passed": $(echo '${{ needs.sast.result }} ${{ needs.sca.result }} ${{ needs.secrets.result }} ${{ needs.container-scan.result }}' | grep -o "success" | wc -l),
-              "failed": $(echo '${{ needs.sast.result }} ${{ needs.sca.result }} ${{ needs.secrets.result }} ${{ needs.container-scan.result }}' | grep -o "failure" | wc -l),
-              "overall_status": "$([[ "${{ needs.sast.result }}" == "failure" ]] || [[ "${{ needs.sca.result }}" == "failure" ]] || [[ "${{ needs.secrets.result }}" == "failure" ]] || [[ "${{ needs.container-scan.result }}" == "failure" ]] && echo "FAILED" || echo "PASSED")"
+              "total_checks": 5,
+              "passed": $(echo '${{ needs.sast.result }} ${{ needs.sca.result }} ${{ needs.secrets.result }} ${{ needs.container-scan.result }} ${{ needs.dast.result }}' | grep -o "success" | wc -l),
+              "failed": $(echo '${{ needs.sast.result }} ${{ needs.sca.result }} ${{ needs.secrets.result }} ${{ needs.container-scan.result }} ${{ needs.dast.result }}' | grep -o "failure" | wc -l),
+              "overall_status": "$([[ "${{ needs.sast.result }}" == "failure" ]] || [[ "${{ needs.sca.result }}" == "failure" ]] || [[ "${{ needs.secrets.result }}" == "failure" ]] || [[ "${{ needs.container-scan.result }}" == "failure" ]] || [[ "${{ needs.dast.result }}" == "failure" ]] && echo "FAILED" || echo "PASSED")"
             }
           }
           EOF
@@ -218,6 +207,7 @@ jobs:
           echo "- SCA: ${{ needs.sca.result }}" >> $GITHUB_STEP_SUMMARY
           echo "- Secrets: ${{ needs.secrets.result }}" >> $GITHUB_STEP_SUMMARY
           echo "- Container Scan: ${{ needs.container-scan.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- DAST: ${{ needs.dast.result }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📥 **JSON Report available in artifacts**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -225,7 +215,8 @@ jobs:
           if [[ "${{ needs.sast.result }}" == "failure" ]] || \
              [[ "${{ needs.sca.result }}" == "failure" ]] || \
              [[ "${{ needs.secrets.result }}" == "failure" ]] || \
-             [[ "${{ needs.container-scan.result }}" == "failure" ]]; then
+             [[ "${{ needs.container-scan.result }}" == "failure" ]] || \
+             [[ "${{ needs.dast.result }}" == "failure" ]]; then
             echo "❌ **Security issues detected!**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "⚠️ Please review the failed jobs above" >> $GITHUB_STEP_SUMMARY
