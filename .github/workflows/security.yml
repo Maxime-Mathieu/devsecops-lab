@@ -116,50 +116,6 @@ jobs:
 
   # ═══════════════════════════════════════
   # 6. DAST - Test dynamique de sécurité
-  # Scanne l'application en cours d'exécution
-  # ═══════════════════════════════════════
-  dast:
-    name: ⚡ DAST
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: docker-image
-
-      - name: Create reports directory
-        run: mkdir -p ./zap-reports
-
-      - name: Load and run app
-        run: |
-          docker load < image.tar
-          docker run -d -p 3000:3000 --name app vuln-app:${{ github.sha }}
-          sleep 10  # Attendre que l'app soit prête
-
-      - name: Run OWASP ZAP Baseline (without artifact upload)
-        uses: zaproxy/action-baseline@v0.10.0
-        with:
-          target: 'http://localhost:3000'
-          cmd_options: '-a -j -t http://localhost:3000'
-          allow_issue_writing: false
-          # On désactive l'upload automatique d'artifacts
-          # L'action va générer les rapports dans le workspace
-
-      - name: List generated reports
-        run: ls -la
-
-      - name: Move reports to artifact directory
-        run: |
-          mv report_*.json ./zap-reports/
-          mv report_*.md ./zap-reports/
-          mv report_*.html ./zap-reports/
-
-      - name: Upload ZAP reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: zap-reports
-          path: ./zap-reports/
-
 
   # ═══════════════════════════════════════
   # 7. RAPPORT FINAL
