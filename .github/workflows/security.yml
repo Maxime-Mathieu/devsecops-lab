@@ -115,8 +115,8 @@ jobs:
           severity: 'CRITICAL'
 
   # ═══════════════════════════════════════
-  # 6. DAST (Optionnel)
-  # Test dynamique de l'application en cours d'exécution
+  # 6. DAST - Test dynamique de sécurité
+  # Scanne l'application en cours d'exécution
   # ═══════════════════════════════════════
   dast:
     name: ⚡ DAST
@@ -127,17 +127,24 @@ jobs:
         with:
           name: docker-image
 
+      - name: Create reports directory
+        run: mkdir -p zap-reports
+
       - name: Load and run app
         run: |
           docker load < image.tar
           docker run -d -p 3000:3000 --name app vuln-app:${{ github.sha }}
-          sleep 5
+          sleep 10  # Attendre que l'app soit prête
 
       - name: OWASP ZAP Baseline
         uses: zaproxy/action-baseline@v0.10.0
         with:
           target: 'http://localhost:3000'
           allow_issue_writing: false
+          artifact_name: "zap-scan-results"
+          rules_file_name: ".zap/rules.tsv"
+          cmd_options: "-a -j -t http://localhost:3000"
+          docker_options: "-v ${{ github.workspace }}/zap-reports:/zap/wrk:rw"
 
   # ═══════════════════════════════════════
   # 7. RAPPORT FINAL
