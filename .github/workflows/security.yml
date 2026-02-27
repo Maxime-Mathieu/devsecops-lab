@@ -136,23 +136,25 @@ jobs:
           docker run -d -p 3000:3000 --name app vuln-app:${{ github.sha }}
           sleep 10  # Attendre que l'app soit prête
 
-      - name: Run OWASP ZAP Baseline
+      - name: Run OWASP ZAP Baseline (without artifact upload)
         uses: zaproxy/action-baseline@v0.10.0
         with:
           target: 'http://localhost:3000'
-          artifact_name: 'zap-report'  # Nom simple et valide
           cmd_options: '-a -j -t http://localhost:3000'
           allow_issue_writing: false
+          # On désactive l'upload automatique d'artifacts
+          # L'action va générer les rapports dans le workspace
 
-      - name: Move reports to artifact
-        if: always()
+      - name: List generated reports
+        run: ls -la
+
+      - name: Move reports to artifact directory
         run: |
           mv report_*.json ./zap-reports/
           mv report_*.md ./zap-reports/
           mv report_*.html ./zap-reports/
 
       - name: Upload ZAP reports
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: zap-reports
