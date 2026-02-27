@@ -120,11 +120,11 @@ jobs:
           format: 'table'
           exit-code: '1'
           severity: 'CRITICAL'
-# ═══════════════════════════════════════
+  # ═══════════════════════════════════════
   # 6. DAST
   # ═══════════════════════════════════════
 
-dast:
+  dast:
     name: :zap: DAST
     runs-on: ubuntu-latest
     needs: build
